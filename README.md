@@ -1,4 +1,30 @@
 # Lab4
+
+## Setup: create venv and install dependencies
+
+1. Create a Python virtual environment in the project root and activate it:
+
+  ```bash
+  python3 -m venv .venv
+  source .venv/bin/activate
+  ```
+
+2. Install dependencies from `requirements.txt` (created for you):
+
+  ```bash
+  pip install -r requirements.txt
+  ```
+
+3. Run a Streamlit app (example):
+
+  ```bash
+  streamlit run your_app.py
+  ```
+
+Notes:
+- The virtual environment created in this repository is `.venv`.
+- To leave the venv: `deactivate`.
+
 # 🧩 CS411 – Lab 4 Mini Project: TCP Online Quiz Game
 
 **Course:** CS411 — Computer Networks  
