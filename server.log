@@ -1,0 +1,17 @@
+Starting QuizServer on 127.0.0.1:8888
+Accept thread started; waiting for connections...
+Broadcasting question 1: What port does HTTP (unencrypted) use by default?
+Broadcasting scores: {}
+Broadcasting question 2: Which protocol provides reliable, ordered, byte-stream delivery?
+Broadcasting scores: {}
+Broadcasting question 3: Which port is used for HTTPS (TLS-encrypted HTTP)?
+Broadcasting scores: {}
+Broadcasting question 4: What does DNS primarily resolve?
+Broadcasting scores: {}
+Game finished, shutting down server loop.
+Traceback (most recent call last):
+  File "/home/yassine/Desktop/Lab4/server/tcp_server.py", line 382, in <module>
+    server.start()
+  File "/home/yassine/Desktop/Lab4/server/tcp_server.py", line 325, in start
+    srv.bind((self.host, self.port))
+OSError: [Errno 98] Address already in use

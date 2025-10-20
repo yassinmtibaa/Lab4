@@ -76,16 +76,22 @@ pip install -r requirements.txt
 
 ### 1. Start the server:
 
+Run from the project root so imports and relative paths work correctly:
+
 ```bash
-cd server
-python tcp_server.py
+# activate your venv first (if you made one at the project root)
+source .venv/bin/activate
+
+# start the TCP server (example defaults)
+python3 server/tcp_server.py --host 0.0.0.0 --port 8888 --questions questions/sample_questions.json
 ```
 
 ### 2. Run the client (in separate terminals or machines):
 
+From the project root (with the venv activated):
+
 ```bash
-cd client
-streamlit run streamlit_app.py
+streamlit run client/streamlit_app.py
 ```
 
 ### 3. Join using IP and port prompted in the UI

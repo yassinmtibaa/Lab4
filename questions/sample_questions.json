@@ -1,20 +1,32 @@
 [
   {
     "id": 1,
-    "question": "What is the capital of France?",
-    "choices": ["Berlin", "Madrid", "Paris", "Rome"],
-    "time": 8
+    "question": "What port does HTTP (unencrypted) use by default?",
+    "choices": ["80", "443", "22", "25"],
+    "answer": "80",
+    "time": 15
   },
   {
     "id": 2,
-    "question": "Which language is this project written in?",
-    "choices": ["Java", "Python", "C++", "JavaScript"],
-    "time": 8
+    "question": "Which protocol provides reliable, ordered, byte-stream delivery?",
+    "choices": ["UDP", "TCP", "ICMP", "ARP"],
+    "answer": "TCP",
+    "time": 12
   },
   {
     "id": 3,
-    "question": "What does TCP stand for?",
-    "choices": ["Transfer Control Protocol", "Transmission Control Protocol", "Transport Communication Protocol", "Transfer Communication Protocol"],
+    "question": "Which port is used for HTTPS (TLS-encrypted HTTP)?",
+    "choices": ["21", "443", "110", "53"],
+    "answer": "443",
     "time": 10
+  },
+  {
+    "id": 4,
+    "question": "What does DNS primarily resolve?",
+    "choices": ["IP to hostname", "Hostname to IP", "MAC to IP", "Port to service"],
+    "answer": "Hostname to IP",
+    "time": 12
   }
 ]
+
+
