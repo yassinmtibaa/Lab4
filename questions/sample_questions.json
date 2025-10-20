@@ -1,0 +1,20 @@
+[
+  {
+    "id": 1,
+    "question": "What is the capital of France?",
+    "choices": ["Berlin", "Madrid", "Paris", "Rome"],
+    "time": 8
+  },
+  {
+    "id": 2,
+    "question": "Which language is this project written in?",
+    "choices": ["Java", "Python", "C++", "JavaScript"],
+    "time": 8
+  },
+  {
+    "id": 3,
+    "question": "What does TCP stand for?",
+    "choices": ["Transfer Control Protocol", "Transmission Control Protocol", "Transport Communication Protocol", "Transfer Communication Protocol"],
+    "time": 10
+  }
+]

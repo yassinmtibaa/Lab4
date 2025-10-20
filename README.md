@@ -1,29 +1,126 @@
-# Lab4
+# 🎯 TCP-Based Kahoot Clone using Streamlit
 
-## Setup: create venv and install dependencies
+A real-time, multi-user quiz application inspired by Kahoot — built with Python, Streamlit, and TCP sockets. This project was created as part of a Computer Networks and Design mini-project by a group of four students.
 
-1. Create a Python virtual environment in the project root and activate it:
+---
 
-  ```bash
-  python3 -m venv .venv
-  source .venv/bin/activate
-  ```
+## 📌 Table of Contents
 
-2. Install dependencies from `requirements.txt` (created for you):
+- [Features](#-features)
+- [Tech Stack](#-tech-stack)
+- [System Architecture](#-system-architecture)
+- [Installation](#-installation)
+- [How to Run](#-how-to-run)
+- [Team Roles](#-team-roles)
+- [Project Structure](#-project-structure)
+- [License](#-license)
 
-  ```bash
-  pip install -r requirements.txt
-  ```
+---
 
-3. Run a Streamlit app (example):
+## 🚀 Features
 
-  ```bash
-  streamlit run your_app.py
-  ```
+- 🔗 TCP-based connection between a server and multiple clients
+- 📺 Interactive Streamlit interface for players
+- ⏱ Real-time question broadcast and response handling
+- 🧠 Customizable quizzes via JSON files
+- 📊 Scoreboard tracking and updates
+- 🎉 Gamified UI (progress bars, celebrations, etc.)
 
-Notes:
-- The virtual environment created in this repository is `.venv`.
-- To leave the venv: `deactivate`.
+---
+
+## 🛠 Tech Stack
+
+- Python 3.10+
+- TCP Sockets (`socket`, `threading`)
+- Streamlit
+- JSON
+
+---
+
+## 🧩 System Architecture
+
+```
+
+```
+  [Player Client]      [Player Client]
+    |                    |
+    |---- TCP Socket ----|
+    |        TCP Server        |
+    |------------------------>|
+       Broadcasts Questions
+       Collects Answers
+       Calculates Scores
+```
+
+````
+
+---
+
+## 📦 Installation
+
+### Clone the repository:
+```bash
+git clone https://github.com/YOUR_USERNAME/kahoot-networked-tcp.git
+cd kahoot-networked-tcp
+````
+
+### Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## 🧪 How to Run
+
+### 1. Start the server:
+
+```bash
+cd server
+python tcp_server.py
+```
+
+### 2. Run the client (in separate terminals or machines):
+
+```bash
+cd client
+streamlit run streamlit_app.py
+```
+
+### 3. Join using IP and port prompted in the UI
+
+---
+
+## 👥 Team Roles
+
+| Name  | Role                            |
+| ----- | ------------------------------- |
+| Alice | TCP Server & Protocol Logic     |
+| Bob   | Streamlit UI + State Handling   |
+| Carol | JSON Quiz Manager & Scoreboard  |
+| Fares | GitHub, Testing & Documentation |
+
+---
+
+## 📁 Project Structure
+
+```
+kahoot-networked-tcp/
+├── client/                   # Streamlit-based player UI
+│   ├── streamlit_app.py
+│   └── assets/
+├── server/                   # TCP Server logic
+│   └── tcp_server.py
+├── shared/                   # Shared utilities
+│   └── utils.py
+├── questions/                # Quiz questions
+│   └── sample_questions.json
+├── docs/                     # Design diagrams, slides
+├── .gitignore
+├── README.md
+└── requirements.txt
+```
 
 # 🧩 CS411 – Lab 4 Mini Project: TCP Online Quiz Game
 
