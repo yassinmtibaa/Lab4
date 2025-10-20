@@ -1,28 +1,90 @@
 # Lab4
-
-Awesome — here’s a **single-file `README.md`** you can drop into your repo. It’s tailored to your CS411 Lab 4 brief (timeline, deliverables, ports, grading, Streamlit GUI, etc.). References to the lab handout are marked. 
-
-```markdown
 # 🧩 CS411 – Lab 4 Mini Project: TCP Online Quiz Game
 
 **Course:** CS411 — Computer Networks  
 **Instructor:** M. Iheb Hergli  
 **Team Size:** 4 members  
-**Project Type:** Mini project (counts as *two* labs):contentReference[oaicite:1]{index=1}  
-**LAN Ports:** Server 8888 (TCP), Streamlit 8501:contentReference[oaicite:2]{index=2}
+**Project Type:** Mini project (counts as *two* labs)  
+**LAN Ports:** Server `8888` (TCP), Streamlit `8501`  
+**Submission:** `lab4.zip` (includes code + 3–5 page report + optional slides)
 
-> This project implements a **multiplayer quiz game over TCP** with a **Streamlit GUI** client. It demonstrates transport-layer concepts: connection setup, reliability, timing, and multi-client synchronization. :contentReference[oaicite:3]{index=3}
+---
+
+## 🎯 Goal
+
+Implement a **multiplayer quiz game** over **TCP** with a **Streamlit** client, demonstrating:
+- reliable, ordered delivery and multi-client synchronization
+- server-side timers and **first-correct** scoring
+- clean teamwork & engineering practices suitable for a lab demo
 
 ---
 
-## 🎯 Objectives
+## 🗺️ System Overview (aligned to your diagrams)
 
-- Implement a **reliable, multithreaded TCP server** and **client**.
-- Build a **Streamlit GUI** to join, answer questions, and view the leaderboard.
-- Enforce **timers**, **first-correct scoring**, and **graceful disconnects**.
-- Document design + testing; present a live demo. :contentReference[oaicite:4]{index=4}
+### Actors & Use Cases
+
+- **Client Player**
+  - Connect to server
+  - Provide unique username
+  - Listen for questions
+  - Submit answers (within timer)
+  - View feedback & score
+  - View leaderboard
+
+- **Server Admin**
+  - Start a game round
+  - Broadcast questions
+  - Set time limits (e.g., 30s)
+  - Display end-of-round scores
+
+### End-to-End Flow (Sequence)
+
+1. **Game Initialization**
+   - Admin starts round
+   - Server **broadcasts question**
+   - Server **starts timer** (e.g., 30s)
+
+2. **Players Answer**
+   - Clients submit answers
+   - Server **checks** each answer
+   - Only **first correct** earns points for that question
+
+3. **Feedback to Players**
+   - Server sends **correct/wrong** result per player
+   - Server updates & **broadcasts leaderboard**
+   - Loop for next question … until round ends
+
+> The server **never blocks** on a single client; disconnects or slow clients don’t stall the round.
 
 ---
+
+## 🧠 Architecture
+
+### Components
+
+- **Server (TCP, port 8888)**
+  - Accept loop (main thread)
+  - **Client handler threads** (read LD-JSON, enqueue answers)
+  - **Coordinator thread** (broadcast Qs, run timers, score, publish feedback/leaderboard)
+  - Shared state guarded by locks: `clients`, `scores`, `current_question_id`, `answered_this_q`
+
+- **Client**
+  - TCP socket to server
+  - Streamlit UI in `app.py` (username, question view, countdown, leaderboard)
+
+### Message Protocol (LD-JSON over TCP)
+
+TCP is a stream; messages are **newline-delimited JSON** (UTF-8):
+
+```json
+{"type":"join","username":"fares"}
+{"type":"question","id":7,"text":"Which port is HTTPS?","options":["80","21","25","443"],"deadline_ms":30000}
+{"type":"answer","username":"fares","question_id":7,"answer":"443","ts":1730}
+{"type":"feedback","username":"fares","correct":true}
+{"type":"score","leaderboard":[["fares",3],["ines",2],["youssef",1]]}
+{"type":"broadcast","message":"Time is up! Correct answer: 443"}
+{"type":"error","code":"BAD_FORMAT","detail":"missing field 'answer'"}
+
 
 ## 🗂️ Repository Structure
 
