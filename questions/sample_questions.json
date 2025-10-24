@@ -1,32 +1,126 @@
-[
-  {
-    "id": 1,
-    "question": "What port does HTTP (unencrypted) use by default?",
-    "choices": ["80", "443", "22", "25"],
-    "answer": "80",
-    "time": 15
-  },
-  {
-    "id": 2,
-    "question": "Which protocol provides reliable, ordered, byte-stream delivery?",
-    "choices": ["UDP", "TCP", "ICMP", "ARP"],
-    "answer": "TCP",
-    "time": 12
-  },
-  {
-    "id": 3,
-    "question": "Which port is used for HTTPS (TLS-encrypted HTTP)?",
-    "choices": ["21", "443", "110", "53"],
-    "answer": "443",
-    "time": 10
-  },
-  {
-    "id": 4,
-    "question": "What does DNS primarily resolve?",
-    "choices": ["IP to hostname", "Hostname to IP", "MAC to IP", "Port to service"],
-    "answer": "Hostname to IP",
-    "time": 12
-  }
-]
-
-
+{
+  "quiz_title": "Computer Networks Quiz",
+  "time_per_question": 20,
+  "questions": [
+    {
+      "id": 1,
+      "question": "What does TCP stand for?",
+      "options": [
+        "Transmission Control Protocol",
+        "Transfer Communication Protocol",
+        "Transport Connection Protocol",
+        "Telecommunication Control Protocol"
+      ],
+      "correct_answer": 0,
+      "points": 100
+    },
+    {
+      "id": 2,
+      "question": "Which layer of the OSI model does TCP operate at?",
+      "options": [
+        "Application Layer",
+        "Transport Layer",
+        "Network Layer",
+        "Data Link Layer"
+      ],
+      "correct_answer": 1,
+      "points": 100
+    },
+    {
+      "id": 3,
+      "question": "What is the default port number for HTTP?",
+      "options": [
+        "21",
+        "80",
+        "443",
+        "8080"
+      ],
+      "correct_answer": 1,
+      "points": 100
+    },
+    {
+      "id": 4,
+      "question": "Which protocol is connectionless?",
+      "options": [
+        "TCP",
+        "HTTP",
+        "UDP",
+        "FTP"
+      ],
+      "correct_answer": 2,
+      "points": 100
+    },
+    {
+      "id": 5,
+      "question": "What is the maximum size of a TCP segment?",
+      "options": [
+        "65,535 bytes",
+        "1,500 bytes",
+        "64 KB",
+        "Unlimited"
+      ],
+      "correct_answer": 0,
+      "points": 100
+    },
+    {
+      "id": 6,
+      "question": "What does DNS stand for?",
+      "options": [
+        "Dynamic Name System",
+        "Domain Name System",
+        "Digital Network Service",
+        "Data Name Server"
+      ],
+      "correct_answer": 1,
+      "points": 100
+    },
+    {
+      "id": 7,
+      "question": "Which of the following is a private IP address?",
+      "options": [
+        "8.8.8.8",
+        "192.168.1.1",
+        "1.1.1.1",
+        "123.45.67.89"
+      ],
+      "correct_answer": 1,
+      "points": 100
+    },
+    {
+      "id": 8,
+      "question": "What is the three-way handshake used for?",
+      "options": [
+        "DNS resolution",
+        "TCP connection establishment",
+        "UDP communication",
+        "IP routing"
+      ],
+      "correct_answer": 1,
+      "points": 100
+    },
+    {
+      "id": 9,
+      "question": "Which command tests network connectivity?",
+      "options": [
+        "traceroute",
+        "ping",
+        "netstat",
+        "ifconfig"
+      ],
+      "correct_answer": 1,
+      "points": 100
+    },
+    {
+      "id": 10,
+      "question": "What is the subnet mask for a /24 network?",
+      "options": [
+        "255.255.0.0",
+        "255.255.255.0",
+        "255.0.0.0",
+        "255.255.255.255"
+      ],
+      "correct_answer": 1,
+      "points": 100
+    }
+  ]
+}

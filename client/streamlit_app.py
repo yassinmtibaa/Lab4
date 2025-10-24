@@ -1,270 +1,548 @@
-## `client/streamlit_app.py`
-
-"""Streamlit client for the TCP quiz game.
-
-Run with the project's virtualenv active:
-
-    streamlit run client/streamlit_app.py
-
-This app connects to the TCP server, displays questions, accepts answers,
-and shows a live leaderboard. Network I/O occurs on a background thread to
-avoid blocking Streamlit's main thread.
 """
-from __future__ import annotations
-
-from pathlib import Path
-import sys
-from queue import Queue, Empty
-import socket
-import threading
-import time
-from typing import Optional
-
+Streamlit TCP Kahoot Client - CS411 Computer Networks Project
+Interactive UI with background listener thread for server messages.
+"""
 
 import streamlit as st
+import socket
+import threading
+import queue
+import time
+import sys
+import os
 
-# Optional auto-refresh: `pip install streamlit-autorefresh`
-try:
-    from streamlit_autorefresh import st_autorefresh  # type: ignore
-except Exception:  # pragma: no cover
-    st_autorefresh = None
+# Add parent directory to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from shared.utils import send_json, recv_json, close_socket_safe
 
-# Ensure project root importable when running from client/ dir
-ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
-from shared.utils import send_json, recv_json
+# Compatibility wrapper for rerun across Streamlit versions
+def rerun():
+    """Wrapper for st.rerun() that works across all Streamlit versions"""
+    if hasattr(st, 'rerun'):
+        st.rerun()
+    elif hasattr(st, 'experimental_rerun'):
+        st.experimental_rerun()
+    else:
+        raise RuntimeError("No rerun method available in this Streamlit version")
 
-st.set_page_config(page_title="TCP Quiz Player", layout="wide")
 
-DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 8888
+# Page configuration
+st.set_page_config(
+    page_title="TCP Kahoot Client",
+    page_icon="🎮",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
-# Thread-safe queue where background listener will put incoming server messages.
+# Custom CSS
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 3rem;
+        font-weight: bold;
+        text-align: center;
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 2rem;
+    }
+    .status-box {
+        padding: 1rem;
+        border-radius: 10px;
+        margin: 1rem 0;
+        text-align: center;
+        font-weight: bold;
+    }
+    .success-box { background-color: #d4edda; color: #155724; }
+    .error-box { background-color: #f8d7da; color: #721c24; }
+    .info-box { background-color: #d1ecf1; color: #0c5460; }
+    .question-box {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 2rem;
+        border-radius: 15px;
+        margin: 1rem 0;
+        font-size: 1.5rem;
+        text-align: center;
+        font-weight: bold;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-def ensure_session_state() -> None:
-    if "sock" not in st.session_state:
-        st.session_state.sock: Optional[socket.socket] = None
-    if "listener_stop" not in st.session_state:
-        st.session_state.listener_stop = threading.Event()
-    if "listener_thread" not in st.session_state:
-        st.session_state.listener_thread: Optional[threading.Thread] = None
-    if "username" not in st.session_state:
-        st.session_state.username = ""
-    if "current_question" not in st.session_state:
+
+# Initialize session state
+def init_session_state():
+    if 'initialized' not in st.session_state:
+        st.session_state.initialized = True
+        st.session_state.connected = False
+        st.session_state.socket = None
+        st.session_state.listener_thread = None
+        st.session_state.message_queue = queue.Queue()
+        st.session_state.player_name = ""
+        st.session_state.score = 0
         st.session_state.current_question = None
-    if "leaderboard" not in st.session_state:
-        st.session_state.leaderboard = {}
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-    if "message_queue" not in st.session_state:
-        from queue import Queue
-        st.session_state.message_queue = Queue()
+        st.session_state.answered = False
+        st.session_state.leaderboard = []
+        st.session_state.game_state = "waiting"
+        st.session_state.status_message = ""
+        st.session_state.answer_result = None
+        st.session_state.time_left = 20
+        st.session_state.question_number = 0
+        st.session_state.total_questions = 0
+        st.session_state.last_update = time.time()
+
+init_session_state()
 
 
-def connect(host: str, port: int, username: str) -> None:
-    # Clean any previous connection
-    disconnect()
+def listener_thread(sock, msg_queue):
+    """
+    Background thread that listens for server messages.
+    Puts messages into a queue for the main thread to process.
+    """
+    print("[LISTENER] Thread started")
+    try:
+        while True:
+            print("[LISTENER] Waiting for message...")
+            msg = recv_json(sock)
+            
+            if msg is None:
+                # Server disconnected
+                print("[LISTENER] Server disconnected (recv returned None)")
+                msg_queue.put({"type": "disconnected"})
+                break
+            
+            print(f"[LISTENER] Received: {msg.get('type')}")
+            msg_queue.put(msg)
+    
+    except Exception as e:
+        print(f"[ERROR] Listener thread error: {e}")
+        import traceback
+        traceback.print_exc()
+        msg_queue.put({"type": "error", "message": str(e)})
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(5.0)
-    sock.connect((host, port))
-    sock.settimeout(None)
 
-    st.session_state.sock = sock
-    st.session_state.username = username.strip() or "guest"
+def connect_to_server(host, port, player_name):
+    """Connect to TCP server and start listener thread."""
+    try:
+        # Create socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(10)  # Timeout only for initial connection
+        sock.connect((host, port))
+        
+        # Register player
+        send_json(sock, {
+            "type": "register",
+            "name": player_name
+        })
+        
+        # Wait for registration confirmation
+        response = recv_json(sock)
+        
+        if response and response.get('type') == 'registered':
+            # Remove timeout for ongoing communication
+            sock.settimeout(None)
+            
+            st.session_state.socket = sock
+            st.session_state.player_name = player_name
+            st.session_state.connected = True
+            
+            print(f"[CLIENT] Connected successfully as {player_name}")
+            
+            # Start listener thread
+            listener = threading.Thread(
+                target=listener_thread,
+                args=(sock, st.session_state.message_queue),
+                daemon=True
+            )
+            listener.start()
+            st.session_state.listener_thread = listener
+            
+            print("[CLIENT] Listener thread started")
+            
+            return True, "Connected successfully!"
+        else:
+            close_socket_safe(sock)
+            return False, "Registration failed"
+    
+    except socket.timeout:
+        return False, "Connection timeout - check server address"
+    except ConnectionRefusedError:
+        return False, "Connection refused - is server running?"
+    except Exception as e:
+        return False, f"Connection error: {e}"
 
-    # send join
-    send_json(sock, {"type": "join", "username": st.session_state.username})
 
-    # start background listener
-    st.session_state.listener_stop.clear()
-    th = threading.Thread(
-    target=listener_thread,
-    args=(sock, st.session_state.listener_stop, st.session_state.message_queue),  # 👈 pass the queue
-    daemon=True)
-    st.session_state.listener_thread = th
-    th.start()
-
-
-def disconnect() -> None:
-    # signal stop
-    stop_event = st.session_state.get("listener_stop")
-    if stop_event:
-        stop_event.set()
-
-    # close socket
-    sock = st.session_state.get("sock")
-    if sock:
-        try:
-            sock.close()
-        except OSError:
-            pass
-    st.session_state.sock = None
+def disconnect_from_server():
+    """Disconnect from server and cleanup."""
+    if st.session_state.socket:
+        close_socket_safe(st.session_state.socket)
+    
+    st.session_state.connected = False
+    st.session_state.socket = None
+    st.session_state.game_state = "waiting"
     st.session_state.current_question = None
-
-def listener_thread(sock: socket.socket, stop_event: threading.Event, queue_obj) -> None:
-    """Background thread that receives raw server messages and pushes them into the provided queue."""
-    print("Listener thread started.")
-    while not stop_event.is_set():
-        try:
-            msg = recv_json(sock)
-        except Exception as e:
-            print("Listener error:", e)
-            break
-
-        if msg is None:
-            print("Listener detected server closed.")
-            queue_obj.put({"type": "_internal_disconnected", "detail": "server closed"})
-            break
-
-        print("Pushing to queue:", msg)
-        queue_obj.put(msg)
-    print("Listener thread exiting.")
+    st.session_state.score = 0
 
 
-    """Background thread that receives raw server messages and pushes them into MESSAGE_QUEUE."""
-    print("Listener thread started.")
-    while not stop_event.is_set():
-        try:
-            msg = recv_json(sock)
-        except Exception as e:
-            print("Listener error:", e)
-            break
-
-        if msg is None:
-            print("Listener detected server closed.")
-            st.session_state.message_queue.put({"type": "_internal_disconnected", "detail": "server closed"})
-            break
-
-        print("Pushing to queue:", msg)
-        st.session_state.message_queue.put(msg)
-    print("Listener thread exiting.")
-
-
-def process_incoming_messages():
-    """Drain MESSAGE_QUEUE and update st.session_state."""
+def process_messages():
+    """Process all pending messages from the server."""
+    messages_processed = 0
     needs_rerun = False
-    st.write("DEBUG:", st.session_state.get("current_question"))
-    while True:
+    
+    while not st.session_state.message_queue.empty() and messages_processed < 10:
         try:
             msg = st.session_state.message_queue.get_nowait()
-        except Empty:
+            if handle_server_message(msg):
+                needs_rerun = True
+            messages_processed += 1
+        except queue.Empty:
             break
-
-        mtype = msg.get("type")
-        if mtype == "question":
-            q = msg.copy()
-            q["_deadline_ts"] = time.time() + int(q.get("time", 10))
-            st.session_state.current_question = q
-            st.session_state.messages.append(f"New question: {q.get('question')}")
-            needs_rerun = True
-        elif mtype == "join_ack":
-            st.session_state.messages.append(msg.get("msg"))
-        elif mtype == "score":
-            st.session_state.leaderboard = msg.get("scores", {})
-        elif mtype == "broadcast":
-            st.session_state.messages.append(msg.get("message"))
-        elif mtype == "feedback":
-            st.session_state.messages.append(f"Feedback: correct={msg.get('correct')}")
-        elif mtype == "end":
-            st.session_state.current_question = None
-            st.session_state.messages.append(msg.get("msg"))
-            needs_rerun = True
-        elif mtype == "_internal_disconnected":
-            st.session_state.messages.append("Disconnected from server")
-            st.session_state.sock = None
-
-    if needs_rerun:
-        st.experimental_rerun()
-
-
-def send_answer(question_id: int, answer: str) -> None:
-    sock = st.session_state.get("sock")
-    if not sock:
-        st.session_state.messages.append("Not connected")
-        return
-    payload = {
-        "type": "answer",
-        "username": st.session_state.username,
-        "question_id": question_id,
-        "answer": answer,
-    }
-    send_json(sock, payload)
-
-
-def render_leaderboard() -> None:
-    scores = st.session_state.get("leaderboard") or {}
-    if not scores:
-        st.write("No scores yet")
-        return
-    rows = sorted(scores.items(), key=lambda kv: -kv[1])
-    for name, pts in rows:
-        st.write(f"**{name}** — {pts} pts")
-def main():
-    ensure_session_state()
-
-    # Auto-refresh the UI every second
-    try:
-        from streamlit_autorefresh import st_autorefresh
-        st_autorefresh(interval=1000, key="refresh")
-    except Exception:
-        st.write("ℹ️ Tip: install streamlit-autorefresh for live updates.")
-        st.write("   pip install streamlit-autorefresh")
-
-    # --- process any pending messages ---
-    process_incoming_messages()
-
-    # --- Debug info ---
-    st.write("DEBUG current_question:", st.session_state.get("current_question"))
-    st.write("DEBUG queue size:", st.session_state.message_queue.qsize())
-
-    st.title("TCP Quiz — Player")
-
-    with st.sidebar:
-        host = st.text_input("Server host", value=DEFAULT_HOST)
-        port = st.number_input("Server port", value=DEFAULT_PORT, step=1)
-        username = st.text_input("Username", value=st.session_state.get("username", ""))
-
-        if st.session_state.get("sock") is None:
-            if st.button("Connect"):
-                try:
-                    connect(host, int(port), username)
-                except Exception as e:
-                    st.error(f"Failed to connect: {e}")
-        else:
-            if st.button("Disconnect"):
-                disconnect()
-
-    # --- Question section ---
-    st.header("Question")
-    q = st.session_state.get("current_question")
-
-    if q:
-        st.subheader(q.get("question"))
-        remaining = max(0, int(q.get("_deadline_ts", 0) - time.time()))
-        total = int(q.get("time", 10))
-        progress = (total - remaining) / max(1, total)
-        st.progress(progress)
-        st.write(f"Time remaining: {remaining}s")
-
-        choice = st.radio("Select an answer:", q.get("choices", []))
-        if st.button("Submit Answer"):
-            send_answer(q.get("id"), choice)
-    else:
-        st.write("No active question — wait for the host to start the round.")
-
-    # --- Leaderboard ---
-    st.header("Leaderboard")
-    render_leaderboard()
-
-    # --- Messages ---
-    st.header("Messages")
-    for m in st.session_state.get("messages", [])[-10:][::-1]:
-        st.write(m)
-
-
-if __name__ == "__main__":
-    main()
     
+    return needs_rerun
+
+
+def handle_server_message(msg):
+    """Handle individual server message and update session state."""
+    msg_type = msg.get('type')
+    changed = False
+    
+    # Debug: Print received messages
+    print(f"[CLIENT DEBUG] Received message: {msg_type}")
+    print(f"[CLIENT DEBUG] Full message: {msg}")
+    
+    if msg_type == 'waiting':
+        st.session_state.status_message = msg.get('message', '')
+        st.session_state.game_state = "waiting"
+        changed = True
+    
+    elif msg_type == 'game_started':
+        st.session_state.game_state = "playing"
+        st.session_state.total_questions = msg.get('total_questions', 0)
+        st.session_state.status_message = "Game starting..."
+        changed = True
+    
+    elif msg_type == 'question':
+        print(f"[CLIENT DEBUG] Processing question: {msg.get('question')}")
+        st.session_state.current_question = {
+            'question': msg.get('question'),
+            'options': msg.get('options'),
+            'time_limit': msg.get('time_limit', 20)
+        }
+        st.session_state.question_number = msg.get('question_number', 0)
+        st.session_state.total_questions = msg.get('total_questions', 0)
+        st.session_state.answered = False
+        st.session_state.answer_result = None
+        st.session_state.time_left = msg.get('time_limit', 20)
+        st.session_state.game_state = "playing"
+        print(f"[CLIENT DEBUG] Game state set to: {st.session_state.game_state}")
+        print(f"[CLIENT DEBUG] Current question stored: {st.session_state.current_question}")
+        changed = True
+    
+    elif msg_type == 'answer_result':
+        st.session_state.answered = True
+        st.session_state.answer_result = {
+            'correct': msg.get('correct'),
+            'points': msg.get('points', 0),
+            'message': msg.get('message', '')
+        }
+        if msg.get('correct'):
+            st.session_state.score += msg.get('points', 0)
+        changed = True
+    
+    elif msg_type == 'answer_reveal':
+        st.session_state.status_message = msg.get('explanation', '')
+        changed = True
+    
+    elif msg_type == 'leaderboard':
+        st.session_state.leaderboard = msg.get('leaderboard', [])
+        changed = True
+    
+    elif msg_type == 'game_over':
+        st.session_state.game_state = "results"
+        st.session_state.leaderboard = msg.get('leaderboard', [])
+        st.session_state.status_message = msg.get('message', 'Game Over!')
+        changed = True
+    
+    elif msg_type == 'player_joined':
+        st.toast(f"🎮 {msg.get('name')} joined!")
+        changed = False
+    
+    elif msg_type == 'player_left':
+        st.toast(f"👋 {msg.get('name')} left")
+        changed = False
+    
+    elif msg_type == 'disconnected':
+        st.session_state.status_message = "Disconnected from server"
+        disconnect_from_server()
+        changed = True
+    
+    elif msg_type == 'error':
+        st.session_state.status_message = msg.get('message', 'Error occurred')
+        changed = True
+    
+    return changed
+
+
+def submit_answer(answer_index):
+    """Submit answer to server."""
+    if st.session_state.answered or not st.session_state.socket:
+        return
+    
+    send_json(st.session_state.socket, {
+        "type": "answer",
+        "answer": answer_index
+    })
+    st.session_state.answered = True
+
+
+def start_game():
+    """Request server to start the game (admin function)."""
+    if st.session_state.socket:
+        send_json(st.session_state.socket, {"type": "start_game"})
+
+
+# Main UI
+st.markdown('<h1 class="main-header">🎮 TCP Kahoot Quiz</h1>', unsafe_allow_html=True)
+
+# Process incoming messages only if connected
+if st.session_state.connected:
+    needs_rerun = process_messages()
+    
+    # Auto-refresh every 1 second if in playing state
+    if st.session_state.game_state == "playing" and not st.session_state.answered:
+        current_time = time.time()
+        if current_time - st.session_state.last_update >= 1.0:
+            st.session_state.last_update = current_time
+            if st.session_state.time_left > 0:
+                st.session_state.time_left -= 1
+            needs_rerun = True
+    
+    if needs_rerun:
+        time.sleep(0.1)
+        rerun()
+
+# Connection Section
+if not st.session_state.connected:
+    st.markdown("---")
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        st.subheader("🔌 Connect to Server")
+        
+        host = st.text_input("Server IP", value="localhost", key="host_input")
+        port = st.number_input("Port", value=8888, min_value=1, max_value=65535, key="port_input")
+        player_name = st.text_input("Your Name", placeholder="Enter your name", key="name_input")
+        
+        if st.button("Connect", type="primary", use_container_width=True):
+            if not player_name.strip():
+                st.error("Please enter your name!")
+            else:
+                with st.spinner("Connecting to server..."):
+                    success, message = connect_to_server(host, port, player_name)
+                    
+                    if success:
+                        st.success(message)
+                        time.sleep(1)
+                        rerun()
+                    else:
+                        st.error(message)
+        
+        # Instructions
+        with st.expander("📖 Instructions"):
+            st.markdown("""
+            ### How to Play:
+            1. **Start the Server** first (in another terminal)
+            2. **Enter server details** and your name
+            3. **Connect** and wait for other players
+            4. **Click 'Start Game'** when ready (any player can start)
+            5. **Answer questions** as fast as you can for bonus points!
+            6. **First correct answer** gets +100 bonus points
+            
+            ### Scoring:
+            - Base points: 100 per correct answer
+            - Speed bonus: Up to 50 points (faster = more points)
+            - First correct: +100 bonus points
+            """)
+
+# Game Interface
+else:
+    # Header with player info
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col1:
+        st.metric("👤 Player", st.session_state.player_name)
+    
+    with col2:
+        if st.session_state.game_state == "playing":
+            st.metric("❓ Question", f"{st.session_state.question_number}/{st.session_state.total_questions}")
+    
+    with col3:
+        st.metric("🏆 Score", st.session_state.score)
+    
+    # Disconnect button
+    if st.button("🚪 Disconnect", type="secondary"):
+        disconnect_from_server()
+        rerun()
+    
+    st.markdown("---")
+    
+    # DEBUG: Show current state
+    with st.expander("🔍 Debug: Current State"):
+        st.write(f"**Game State:** {st.session_state.game_state}")
+        st.write(f"**Connected:** {st.session_state.connected}")
+        st.write(f"**Current Question:** {st.session_state.current_question}")
+        st.write(f"**Question Number:** {st.session_state.question_number}/{st.session_state.total_questions}")
+        st.write(f"**Answered:** {st.session_state.answered}")
+        st.write(f"**Time Left:** {st.session_state.time_left}")
+    
+    # Status message
+    if st.session_state.status_message:
+        st.info(st.session_state.status_message)
+    
+    # Waiting State
+    if st.session_state.game_state == "waiting":
+        st.markdown("### ⏳ Waiting for game to start...")
+        
+        st.info("💡 Any player can start the game using the button below")
+        
+        # Admin controls
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col2:
+            if st.button("🎮 Start Game", type="primary", use_container_width=True):
+                start_game()
+                st.success("Game start request sent!")
+                time.sleep(1)
+                rerun()
+    
+    # Playing State
+    elif st.session_state.game_state == "playing" and st.session_state.current_question:
+        question = st.session_state.current_question
+        
+        # Debug info
+        st.sidebar.write("**Debug Info:**")
+        st.sidebar.write(f"Game State: {st.session_state.game_state}")
+        st.sidebar.write(f"Question #{st.session_state.question_number}")
+        st.sidebar.write(f"Has Question: {st.session_state.current_question is not None}")
+        st.sidebar.write(f"Answered: {st.session_state.answered}")
+        
+        # Progress bar
+        progress = st.session_state.question_number / st.session_state.total_questions if st.session_state.total_questions > 0 else 0
+        st.progress(progress, text=f"Progress: {st.session_state.question_number}/{st.session_state.total_questions}")
+        
+        # Timer
+        timer_col1, timer_col2, timer_col3 = st.columns([1, 2, 1])
+        with timer_col2:
+            time_color = "#ff4444" if st.session_state.time_left <= 5 else "#4CAF50"
+            st.markdown(f"<h2 style='text-align: center; color: {time_color};'>⏱️ {st.session_state.time_left}s</h2>", 
+                       unsafe_allow_html=True)
+        
+        # Question
+        st.markdown(f'<div class="question-box">{question["question"]}</div>', unsafe_allow_html=True)
+        
+        # Answer result feedback
+        if st.session_state.answer_result:
+            result = st.session_state.answer_result
+            if result['correct']:
+                st.success(f"✅ {result['message']}")
+            else:
+                st.error(f"❌ {result['message']}")
+        
+        # Answer buttons
+        st.markdown("### Choose your answer:")
+        
+        col1, col2 = st.columns(2)
+        
+        colors = ["🔴", "🔵", "🟡", "🟢"]
+        
+        for idx, option in enumerate(question['options']):
+            target_col = col1 if idx % 2 == 0 else col2
+            
+            with target_col:
+                button_label = f"{colors[idx]} {option}"
+                
+                if st.button(
+                    button_label,
+                    key=f"answer_{idx}",
+                    disabled=st.session_state.answered,
+                    use_container_width=True,
+                    type="secondary"
+                ):
+                    submit_answer(idx)
+                    rerun()
+        
+        # Leaderboard in sidebar
+        if st.session_state.leaderboard:
+            with st.sidebar:
+                st.subheader("🏆 Current Leaderboard")
+                for i, player in enumerate(st.session_state.leaderboard[:10], 1):
+                    medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+                    highlight = "**" if player['name'] == st.session_state.player_name else ""
+                    st.write(f"{highlight}{medal} {player['name']} - {player['score']} pts{highlight}")
+    
+    # Results State
+    elif st.session_state.game_state == "results":
+        st.balloons()
+        
+        st.markdown("## 🎉 Game Over! Final Results")
+        
+        if st.session_state.leaderboard:
+            # Top 3 podium
+            if len(st.session_state.leaderboard) >= 3:
+                col1, col2, col3 = st.columns(3)
+                
+                with col2:  # 1st place center
+                    st.markdown("### 🥇 First Place")
+                    st.markdown(f"### {st.session_state.leaderboard[0]['name']}")
+                    st.markdown(f"## {st.session_state.leaderboard[0]['score']} pts")
+                
+                with col1:  # 2nd place left
+                    if len(st.session_state.leaderboard) >= 2:
+                        st.markdown("### 🥈 Second Place")
+                        st.markdown(f"### {st.session_state.leaderboard[1]['name']}")
+                        st.markdown(f"## {st.session_state.leaderboard[1]['score']} pts")
+                
+                with col3:  # 3rd place right
+                    if len(st.session_state.leaderboard) >= 3:
+                        st.markdown("### 🥉 Third Place")
+                        st.markdown(f"### {st.session_state.leaderboard[2]['name']}")
+                        st.markdown(f"## {st.session_state.leaderboard[2]['score']} pts")
+            
+            st.markdown("---")
+            
+            # Full leaderboard
+            st.subheader("📊 Complete Rankings")
+            for i, player in enumerate(st.session_state.leaderboard, 1):
+                medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"#{i}"
+                
+                # Highlight current player
+                if player['name'] == st.session_state.player_name:
+                    st.markdown(f"**{medal} {player['name']} - {player['score']} points** ⭐")
+                else:
+                    st.write(f"{medal} {player['name']} - {player['score']} points")
+        
+        st.markdown("---")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 Play Again", type="primary", use_container_width=True):
+                st.session_state.score = 0
+                st.session_state.game_state = "waiting"
+                st.session_state.status_message = "Waiting for next game..."
+                rerun()
+        
+        with col2:
+            if st.button("🚪 Exit", type="secondary", use_container_width=True):
+                disconnect_from_server()
+                rerun()
+
+
+# Footer
+st.markdown("---")
+st.markdown("""
+<div style='text-align: center; color: #666; font-size: 0.9rem;'>
+    <strong>CS411 Computer Networks Project</strong><br>
+    Mediterranean Institute of Technology (SMU)<br>
+    Instructor: M. Iheb Hergli
+</div>
+""", unsafe_allow_html=True)
