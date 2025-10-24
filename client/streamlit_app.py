@@ -312,7 +312,7 @@ if st.session_state.connected:
     # Auto-refresh every 1 second if in playing state
     if st.session_state.game_state == "playing" and not st.session_state.answered:
         current_time = time.time()
-        if current_time - st.session_state.last_update >= 1.0:
+        if current_time - st.session_state.last_update >= 0.5:
             st.session_state.last_update = current_time
             if st.session_state.time_left > 0:
                 st.session_state.time_left -= 1
