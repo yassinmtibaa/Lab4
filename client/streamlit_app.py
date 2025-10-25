@@ -91,6 +91,7 @@ def init_session_state():
         st.session_state.question_number = 0
         st.session_state.total_questions = 0
         st.session_state.last_update = time.time()
+        st.session_state.force_refresh = False
 
 init_session_state()
 
@@ -205,7 +206,6 @@ def process_messages():
 def handle_server_message(msg):
     """Handle individual server message and update session state."""
     msg_type = msg.get('type')
-    changed = False
     
     # Debug: Print received messages
     print(f"[CLIENT DEBUG] Received message: {msg_type}")
@@ -214,13 +214,13 @@ def handle_server_message(msg):
     if msg_type == 'waiting':
         st.session_state.status_message = msg.get('message', '')
         st.session_state.game_state = "waiting"
-        changed = True
+        st.session_state.force_refresh = True
     
     elif msg_type == 'game_started':
         st.session_state.game_state = "playing"
         st.session_state.total_questions = msg.get('total_questions', 0)
         st.session_state.status_message = "Game starting..."
-        changed = True
+        st.session_state.force_refresh = True
     
     elif msg_type == 'question':
         print(f"[CLIENT DEBUG] Processing question: {msg.get('question')}")
@@ -235,9 +235,9 @@ def handle_server_message(msg):
         st.session_state.answer_result = None
         st.session_state.time_left = msg.get('time_limit', 20)
         st.session_state.game_state = "playing"
+        st.session_state.force_refresh = True
         print(f"[CLIENT DEBUG] Game state set to: {st.session_state.game_state}")
         print(f"[CLIENT DEBUG] Current question stored: {st.session_state.current_question}")
-        changed = True
     
     elif msg_type == 'answer_result':
         st.session_state.answered = True
@@ -248,40 +248,36 @@ def handle_server_message(msg):
         }
         if msg.get('correct'):
             st.session_state.score += msg.get('points', 0)
-        changed = True
+        st.session_state.force_refresh = True
     
     elif msg_type == 'answer_reveal':
         st.session_state.status_message = msg.get('explanation', '')
-        changed = True
+        st.session_state.force_refresh = True
     
     elif msg_type == 'leaderboard':
         st.session_state.leaderboard = msg.get('leaderboard', [])
-        changed = True
+        st.session_state.force_refresh = True
     
     elif msg_type == 'game_over':
         st.session_state.game_state = "results"
         st.session_state.leaderboard = msg.get('leaderboard', [])
         st.session_state.status_message = msg.get('message', 'Game Over!')
-        changed = True
+        st.session_state.force_refresh = True
     
     elif msg_type == 'player_joined':
         st.toast(f"🎮 {msg.get('name')} joined!")
-        changed = False
     
     elif msg_type == 'player_left':
         st.toast(f"👋 {msg.get('name')} left")
-        changed = False
     
     elif msg_type == 'disconnected':
         st.session_state.status_message = "Disconnected from server"
         disconnect_from_server()
-        changed = True
+        st.session_state.force_refresh = True
     
     elif msg_type == 'error':
         st.session_state.status_message = msg.get('message', 'Error occurred')
-        changed = True
-    
-    return changed
+        st.session_state.force_refresh = True
 
 
 def submit_answer(answer_index):
@@ -307,20 +303,30 @@ st.markdown('<h1 class="main-header">🎮 TCP Kahoot Quiz</h1>', unsafe_allow_ht
 
 # Process incoming messages only if connected
 if st.session_state.connected:
-    needs_rerun = process_messages()
+    # Check for new messages
+    has_messages = not st.session_state.message_queue.empty()
     
-    # Auto-refresh every 1 second if in playing state
+    if has_messages:
+        # Process all pending messages
+        while not st.session_state.message_queue.empty():
+            try:
+                msg = st.session_state.message_queue.get_nowait()
+                handle_server_message(msg)
+            except queue.Empty:
+                break
+        # Force rerun after processing messages
+        time.sleep(0.05)
+        rerun()
+    
+    # Auto-refresh for timer countdown
     if st.session_state.game_state == "playing" and not st.session_state.answered:
         current_time = time.time()
-        if current_time - st.session_state.last_update >= 0.5:
+        if current_time - st.session_state.last_update >= 1.0:
             st.session_state.last_update = current_time
             if st.session_state.time_left > 0:
                 st.session_state.time_left -= 1
-            needs_rerun = True
-    
-    if needs_rerun:
-        time.sleep(0.1)
-        rerun()
+            time.sleep(0.05)
+            rerun()
 
 # Connection Section
 if not st.session_state.connected:
@@ -546,3 +552,16 @@ st.markdown("""
     Instructor: M. Iheb Hergli
 </div>
 """, unsafe_allow_html=True)
+
+# Auto-refresh mechanism
+if st.session_state.connected:
+    # Check if we need to refresh
+    if st.session_state.force_refresh or not st.session_state.message_queue.empty():
+        st.session_state.force_refresh = False
+        time.sleep(0.1)
+        rerun()
+    
+    # Periodic refresh when playing
+    if st.session_state.game_state == "playing":
+        time.sleep(0.5)
+        rerun()
